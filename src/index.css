@@ -1,0 +1,17 @@
+@import url("https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Anuphan", "Noto Sans Thai", system-ui, sans-serif;
+  /* โทนเขียวมิ้น — ค่าเดียวกับ src/lib/theme.js (ใช้ในกราฟ) */
+  --color-paper: #eff8f5;
+  --color-ink: #12332b;
+  --color-muted: #577168;
+  --color-line: #d3e8e0;
+  --color-accent: #3cc4a2;
+  --color-brand: #157a62;
+}
+
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+}
