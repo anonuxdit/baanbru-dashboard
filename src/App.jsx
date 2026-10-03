@@ -32,7 +32,7 @@ function Logo() {
 }
 
 const TABS = [
-  { id: "overview", label: "ภาพรวม (CSV)" },
+  { id: "overview", label: "Dashboard" },
   { id: "customers", label: "ลูกค้า" },
   { id: "lab2", label: "Lab 2.2 · ซ่อมกราฟ" },
   { id: "live", label: "สด · Firestore" },
@@ -64,10 +64,12 @@ export default function App() {
     <main className="min-h-screen bg-stone-100 text-stone-900">
       <nav className="sticky top-0 z-10 border-b border-stone-200 bg-stone-100/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-4 px-5 py-4">
-          <button onClick={() => choose("overview")} className="flex shrink-0 items-center gap-3 rounded-lg py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint-500">
+          <a href="#overview" aria-label="บ้านบรู · กลับหน้า Dashboard" title="กลับหน้า Dashboard"
+             onClick={(e) => { e.preventDefault(); choose("overview"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+             className="flex shrink-0 items-center gap-3 rounded-lg py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint-500">
             <Logo />
             <span className="text-2xl sm:text-3xl font-bold tracking-tight text-mint-700">บ้านบรู</span>
-          </button>
+          </a>
           <div className="ml-auto flex min-w-0 gap-1 overflow-x-auto">
             {TABS.map((t) => (
               <button key={t.id} onClick={() => choose(t.id)}
