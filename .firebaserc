@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "baanbrew-dashboard-d7b5f"
+  },
+  "targets": {
+    "baanbrew-dashboard-d7b5f": {
+      "hosting": {
+        "main": [
+          "baanbrew-dashboard-anx"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

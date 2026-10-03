@@ -27,3 +27,4 @@ dist-ssr
 .env
 secrets/
 import-summary.json
+.firebase/
