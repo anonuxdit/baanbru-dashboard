@@ -1,188 +1,83 @@
-// src/lib/metrics.js
-// รวม logic การคำนวณทั้งหมดของ Dashboard ไว้ที่นี่ (ไม่มีโค้ด UI)
+// ฟังก์ชันคำนวณทั้งหมดของ Dashboard อยู่ที่นี่ แยกจาก UI เพื่อให้ตรวจสอบง่าย
+// หลักการ: 1 แถวใน sales.csv = 1 รายการสินค้าในบิล, ยอดขาย = qty × unit_price
 
-/** ปัดเศษเป็น 2 ตำแหน่ง ลดปัญหาทศนิยมลอยตัว เช่น 0.1 + 0.2 */
-const round2 = (n) => Math.round(n * 100) / 100
-
-/**
- * แปลงแถวดิบจาก PapaParse ให้เป็นข้อมูลที่พร้อมคำนวณ
- * - แปลง qty / unit_price เป็นตัวเลข แล้วคำนวณ revenue = qty × unit_price
- * - ดึงวันที่จากสตริงตรง ๆ (10 ตัวแรก) เพื่อคงวันที่ตามเวลาไทย
- *   ไม่ใช้ new Date() เพราะจะถูกแปลงเป็น timezone ของเครื่องที่เปิดเว็บ
- * - ตัดแถวที่ข้อมูลไม่ครบหรือเป็นตัวเลขไม่ได้ทิ้ง
- */
-export function normalizeRows(rawRows) {
-  const rows = []
-  for (const r of rawRows) {
-    const orderId = String(r.order_id ?? '').trim()
-    const datetime = String(r.datetime ?? '').trim()
-    const qty = Number(r.qty)
-    const unitPrice = Number(r.unit_price)
-
-    if (!orderId || !/^\d{4}-\d{2}-\d{2}/.test(datetime)) continue
-    if (!Number.isFinite(qty) || !Number.isFinite(unitPrice)) continue
-
-    rows.push({
-      orderId,
-      date: datetime.slice(0, 10), // "2025-04-01"
-      branch: String(r.branch ?? '').trim() || 'ไม่ระบุสาขา',
-      customerId: String(r.customer_id ?? '').trim(), // "" = ลูกค้าทั่วไป
-      revenue: qty * unitPrice,
-    })
-  }
+/** แปลงแถวดิบจาก CSV เป็นตัวเลขและเพิ่มคอลัมน์ที่ใช้บ่อย */
+export function prepareRows(rows) {
   return rows
+    .filter((r) => r.order_id)
+    .map((r) => {
+      const qty = Number(r.qty);
+      const unitPrice = Number(r.unit_price);
+      return {
+        ...r,
+        qty,
+        unitPrice,
+        revenue: qty * unitPrice,
+        // ใช้ 10 ตัวอักษรแรกของ ISO string (เวลาไทย) เป็นวันที่
+        // ห้ามใช้ new Date(...).toISOString() เพราะจะแปลงเป็น UTC และวันเลื่อน
+        date: r.datetime.slice(0, 10),
+        hour: Number(r.datetime.slice(11, 13)),
+      };
+    });
 }
 
-/**
- * KPI หลัก 4 ตัว
- * - totalSales: ผลรวม revenue ทุกแถว
- * - billCount: จำนวน order_id ที่ไม่ซ้ำ (เพราะ 1 บิลมีได้หลายแถว)
- * - avgPerBill: totalSales ÷ billCount (เฉลี่ยต่อบิล ไม่ใช่ต่อแถว)
- * - uniqueMembers: จำนวน customer_id ที่ไม่ว่างและไม่ซ้ำ
- */
+/** KPI 4 ตัวบนสุดของ Dashboard */
 export function computeKpis(rows) {
-  let totalSales = 0
-  const bills = new Set()
-  const members = new Set()
-
-  for (const r of rows) {
-    totalSales += r.revenue
-    bills.add(r.orderId)
-    if (r.customerId) members.add(r.customerId)
-  }
-
-  const billCount = bills.size
+  const revenue = rows.reduce((sum, r) => sum + r.revenue, 0);
+  const bills = new Set(rows.map((r) => r.order_id)).size; // นับบิล ไม่ใช่นับแถว
+  // customer_id ว่าง = walk-in ไม่นับเป็นลูกค้า
+  const customers = new Set(rows.map((r) => r.customer_id).filter(Boolean)).size;
   return {
-    totalSales: round2(totalSales),
-    billCount,
-    avgPerBill: billCount ? round2(totalSales / billCount) : 0,
-    uniqueMembers: members.size,
-  }
+    revenue,
+    bills,
+    avgPerBill: bills ? revenue / bills : 0,
+    customers,
+  };
 }
 
-/**
- * กรองแถวตามสาขาและช่วงวันที่ (รวมวันเริ่มและวันสิ้นสุด)
- * - branch เป็น "" = ทุกสาขา
- * - start / end เป็น "YYYY-MM-DD" หรือ "" = ไม่จำกัดฝั่งนั้น
- *   เทียบเป็นสตริงได้ตรง ๆ เพราะรูปแบบ ISO เรียงตามตัวอักษรเท่ากับเรียงตามเวลา
- */
-export function filterRows(rows, { branch = '', start = '', end = '' } = {}) {
-  return rows.filter(
-    (r) =>
-      (!branch || r.branch === branch) &&
-      (!start || r.date >= start) &&
-      (!end || r.date <= end),
-  )
+/** ยอดขายรวมรายวัน เรียงตามวันที่ */
+export function dailyRevenue(rows) {
+  const map = new Map();
+  for (const r of rows) map.set(r.date, (map.get(r.date) ?? 0) + r.revenue);
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, revenue]) => ({ date, revenue }));
 }
 
-/** วันแรกและวันสุดท้ายที่มีในข้อมูล คืนค่า { min, max } เป็น "YYYY-MM-DD" */
-export function dateBounds(rows) {
-  let min = ''
-  let max = ''
+/** ยอดขายรายชั่วโมง 0–23 (เติมชั่วโมงที่ไม่มียอดเป็น 0) */
+export function hourlyRevenue(rows) {
+  const totals = Array(24).fill(0);
+  for (const r of rows) totals[r.hour] += r.revenue;
+  return totals.map((revenue, hour) => ({ hour, revenue }));
+}
+
+/** ค่าเฉลี่ยเคลื่อนที่ ใช้ทำเส้นแนวโน้มให้อ่านง่ายขึ้น */
+export function withMovingAverage(series, key = "revenue", window = 7) {
+  return series.map((d, i) => {
+    const slice = series.slice(Math.max(0, i - window + 1), i + 1);
+    const avg = slice.reduce((s, x) => s + x[key], 0) / slice.length;
+    return { ...d, ma: i >= window - 1 ? avg : null };
+  });
+}
+
+/** ยอดขายแยกสาขา เรียงจากมากไปน้อย */
+export function revenueByBranch(rows) {
+  const map = new Map();
   for (const r of rows) {
-    if (!min || r.date < min) min = r.date
-    if (!max || r.date > max) max = r.date
+    const cur = map.get(r.branch) ?? { branch: r.branch, revenue: 0, bills: new Set() };
+    cur.revenue += r.revenue;
+    cur.bills.add(r.order_id);
+    map.set(r.branch, cur);
   }
-  return { min, max }
+  return [...map.values()]
+    .map((b) => ({ branch: b.branch, revenue: b.revenue, bills: b.bills.size }))
+    .sort((a, b) => b.revenue - a.revenue);
 }
 
-/** เลื่อนวันที่แบบ "YYYY-MM-DD" ไป 1 วัน โดยคิดใน UTC ล้วน ๆ จึงไม่เพี้ยนตาม timezone */
-function nextDay(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)
-}
-
-/**
- * ยอดขายรายวัน สำหรับ LineChart
- * - รวม revenue ตามวันที่ แล้วเรียงจากเก่าไปใหม่
- * - เติมวันที่ไม่มียอดขายเป็น 0 เพื่อให้เส้นกราฟไม่ลากข้ามวันที่หายไป
- * - ส่ง start / end มาได้ เพื่อให้แกนวันที่ครอบคลุมช่วงที่กำหนดเสมอ
- *   (เช่น สาขาที่ไม่มียอดขายช่วงต้นช่วง ก็ยังเริ่มแกนที่วันเดียวกับสาขาอื่น)
- * คืนค่า [{ date: "2025-04-01", sales: 12345 }, ...]
- */
-export function salesByDay(rows, start, end) {
-  const totals = new Map()
-  for (const r of rows) {
-    totals.set(r.date, (totals.get(r.date) ?? 0) + r.revenue)
-  }
-  const dates = [...totals.keys()].sort()
-  const first = start ?? dates[0]
-  const last = end ?? dates[dates.length - 1]
-  if (!first || !last) return []
-
-  const result = []
-  for (let d = first; d <= last; d = nextDay(d)) {
-    result.push({ date: d, sales: round2(totals.get(d) ?? 0) })
-  }
-  return result
-}
-
-/**
- * เพิ่มค่าเฉลี่ยเคลื่อนที่ย้อนหลัง (trailing moving average) ให้ข้อมูลรายวัน
- * - ma ของวันใด = ค่าเฉลี่ยยอดขายของวันนั้นและ (windowSize − 1) วันก่อนหน้า
- * - นับตามวันปฏิทิน ใช้ได้ถูกต้องเพราะ salesByDay เติมวันที่ไม่มียอดขายเป็น 0 แล้ว
- * - ช่วงแรกที่ยังมีข้อมูลไม่ครบ windowSize วัน ให้ค่าเป็น null (กราฟจะไม่วาดจุดนั้น)
- *   เพื่อไม่ให้ค่าเฉลี่ยจากข้อมูลแค่ 1–2 วันแกว่งจนเข้าใจผิด
- * - ใช้ผลรวมแบบเลื่อนหน้าต่าง บวกวันใหม่ ลบวันที่หลุดออก จึงคำนวณแค่รอบเดียว
- * คืนค่า [{ date, sales, ma: number | null }, ...]
- */
-export function withMovingAverage(daily, windowSize = 7) {
-  let windowSum = 0
-  return daily.map((day, i) => {
-    windowSum += day.sales
-    if (i >= windowSize) windowSum -= daily[i - windowSize].sales
-    return { ...day, ma: i >= windowSize - 1 ? round2(windowSum / windowSize) : null }
-  })
-}
-
-/**
- * ยอดขายแยกสาขา สำหรับ BarChart
- * - รวม revenue ตามชื่อสาขา แล้วเรียงจากมากไปน้อย
- * คืนค่า [{ branch: "สาขา A", sales: 50000 }, ...]
- */
-export function salesByBranch(rows) {
-  const totals = new Map()
-  for (const r of rows) {
-    totals.set(r.branch, (totals.get(r.branch) ?? 0) + r.revenue)
-  }
-  return [...totals]
-    .map(([branch, sales]) => ({ branch, sales: round2(sales) }))
-    .sort((a, b) => b.sales - a.sales)
-}
-
-// ---------- ตัวจัดรูปแบบการแสดงผล ----------
-
-const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
-
-/** ตัวเลขมีจุลภาค เช่น 12345 → "12,345" */
-export function formatNumber(value, decimals = 0) {
-  return Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  })
-}
-
-/** จำนวนเงินบาท เช่น 12345.5 → "฿12,345.50" */
-export function formatBaht(value, decimals = 0) {
-  return `฿${formatNumber(value, decimals)}`
-}
-
-/** จำนวนเงินบาทแบบย่อ สำหรับแกนกราฟที่พื้นที่แคบ เช่น 125000 → "฿125K", 2400000 → "฿2.4M" */
-export function formatBahtCompact(value) {
-  return `฿${Number(value).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 })}`
-}
-
-/**
- * วันที่แบบย่อภาษาไทย (ปี พ.ศ.) เช่น "2025-04-01" →
- * - year = false (ค่าเริ่มต้น) → "1 เม.ย."
- * - year = true               → "1 เม.ย. 2568"
- * - year = 'short'            → "1 เม.ย. 68" (สำหรับแกนกราฟที่พื้นที่แคบ)
- */
-export function formatThaiDate(dateStr, year = false) {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const base = `${d} ${THAI_MONTHS[m - 1]}`
-  if (!year) return base
-  const be = y + 543
-  return `${base} ${year === 'short' ? String(be).slice(-2) : be}`
-}
+export const fmtBaht = (n) =>
+  "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
+export const fmtBaht2 = (n) =>
+  "฿" + n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const fmtNum = (n) => n.toLocaleString("th-TH");
+export const fmtShortBaht = (n) =>
+  n >= 1_000_000 ? `฿${(n / 1_000_000).toFixed(1)} ล.` : n >= 1000 ? `฿${(n / 1000).toFixed(0)}k` : `฿${n}`;

@@ -1,17 +1,25 @@
-@import url("https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Anuphan", "Noto Sans Thai", system-ui, sans-serif;
-  /* โทนเขียวมิ้น — ค่าเดียวกับ src/lib/theme.js (ใช้ในกราฟ) */
-  --color-paper: #eff8f5;
-  --color-ink: #12332b;
-  --color-muted: #577168;
-  --color-line: #d3e8e0;
-  --color-accent: #3cc4a2;
-  --color-brand: #157a62;
-}
+  --font-sans: "Anuphan", "Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif;
 
-body {
-  @apply bg-paper text-ink font-sans antialiased;
+  /* โทนเขียวมิ้น: แทนที่ชุดสี stone ทั้งชุด ทุกไฟล์ที่ใช้ stone-* จึงเปลี่ยนเป็นโทนมิ้นพร้อมกัน */
+  --color-stone-50: #f4fbf8;
+  --color-stone-100: #e9f6f1;
+  --color-stone-200: #d3e8e0;
+  --color-stone-300: #b3d5c8;
+  --color-stone-400: #85ad9f;
+  --color-stone-500: #5d7d72;
+  --color-stone-600: #46655a;
+  --color-stone-700: #35524a;
+  --color-stone-800: #234039;
+  --color-stone-900: #12332b;
+  --color-stone-950: #0a211b;
+
+  /* สีหลักของแบรนด์ ต้องตรงกับ BRAND / ACCENT ใน src/Overview.jsx (Recharts ใช้ class ไม่ได้) */
+  --color-mint-50: #e8f8f3;
+  --color-mint-100: #c9efe3;
+  --color-mint-500: #3cc4a2;
+  --color-mint-600: #1f9e80;
+  --color-mint-700: #157a62;
 }
