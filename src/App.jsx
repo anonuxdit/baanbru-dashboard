@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import Papa from "papaparse";
 import Overview from "./Overview.jsx";
+import Customers from "./Customers.jsx";
 import Lab2Page from "./lab2/Lab2Page.jsx";
 import LiveTab from "./lab3/LiveTab.jsx";
 import RulesTester from "./lab3/RulesTester.jsx";
 import SetupGuide from "./lab3/SetupGuide.jsx";
 import { isConfigured } from "./lab3/firebase.js";
 import { prepareRows } from "./lib/metrics.js";
+import { prepareCustomers } from "./lib/customerMetrics.js";
 
 const loadCsv = (url) =>
   new Promise((resolve, reject) =>
@@ -31,6 +33,7 @@ function Logo() {
 
 const TABS = [
   { id: "overview", label: "ภาพรวม (CSV)" },
+  { id: "customers", label: "ลูกค้า" },
   { id: "lab2", label: "Lab 2.2 · ซ่อมกราฟ" },
   { id: "live", label: "สด · Firestore" },
   { id: "rules", label: "ทดสอบ Rules" },
@@ -40,12 +43,18 @@ export default function App() {
   const [rows, setRows] = useState(null);
   const [products, setProducts] = useState(null);
   const [error, setError] = useState(null);
+  const [customers, setCustomers] = useState(null);
+  const [customersError, setCustomersError] = useState(null);
   const [tab, setTab] = useState(() => TABS.find((t) => "#" + t.id === location.hash)?.id ?? "overview");
 
   useEffect(() => {
     Promise.all([loadCsv("/sales.csv"), loadCsv("/products.csv")])
       .then(([sales, prods]) => { setRows(prepareRows(sales)); setProducts(prods); })
       .catch((e) => setError(e.message ?? String(e)));
+    // ข้อมูลลูกค้าโหลดแยก ถ้าไฟล์นี้มีปัญหา แท็บอื่นยังใช้งานได้
+    loadCsv("/customers.csv")
+      .then((c) => setCustomers(prepareCustomers(c)))
+      .catch((e) => setCustomersError(e.message ?? String(e)));
   }, []);
 
   const choose = (id) => { setTab(id); history.replaceState(null, "", "#" + id); };
@@ -73,6 +82,9 @@ export default function App() {
         {error && needsCsv && <p className="text-red-700">โหลดข้อมูลไม่สำเร็จ: {error} ตรวจว่ามี public/sales.csv และ public/products.csv</p>}
         {!error && needsCsv && !rows && <p className="text-stone-500">กำลังโหลดข้อมูลยอดขาย…</p>}
         {rows && tab === "overview" && <Overview rows={rows} />}
+        {tab === "customers" && customersError && <p className="text-red-700">โหลดข้อมูลลูกค้าไม่สำเร็จ: {customersError} ตรวจว่ามี public/customers.csv</p>}
+        {tab === "customers" && !customersError && !customers && <p className="text-stone-500">กำลังโหลดข้อมูลลูกค้า…</p>}
+        {customers && tab === "customers" && <Customers customers={customers} />}
         {rows && tab === "lab2" && <Lab2Page rows={rows} products={products} />}
         {tab === "live" && (isConfigured ? <LiveTab /> : <SetupGuide />)}
         {tab === "rules" && (isConfigured ? <RulesTester /> : <SetupGuide />)}

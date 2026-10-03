@@ -1,11 +1,12 @@
-// Lab 3.2 · Dashboard ยอดขายแบบ real-time จาก Firestore (Prompt 3.2B) + ฟอร์มบันทึกยอดขาย (Prompt 3.2C)
+// Lab 3.2–3.3 · Dashboard ยอดขายแบบ real-time จาก Firestore + ฟอร์มบันทึกยอดขาย + ล็อกอินด้วย Google
 // ฟัง collection "sales" ตามช่วงวันที่ด้วย onSnapshot แล้วคำนวณด้วยฟังก์ชันเดียวกับหน้าภาพรวมจาก CSV
 import { useEffect, useMemo, useRef, useState } from "react";
 import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import {
   Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { db } from "./firebase.js";
+import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { auth, db, googleProvider } from "./firebase.js";
 import { addDays, todayBangkok } from "./time.js";
 import { BRANCHES } from "./saleModel.js";
 import SaleForm from "./SaleForm.jsx";
@@ -33,13 +34,108 @@ const ERROR_TEXT = {
 };
 const errorText = (e) => ERROR_TEXT[e.code] ?? `อ่านข้อมูลไม่สำเร็จ (${e.code ?? e.message})`;
 
+const AUTH_ERROR_TEXT = {
+  "auth/unauthorized-domain": `โดเมน ${location.hostname} ยังไม่ได้รับอนุญาต เพิ่มใน Firebase console → Authentication → Settings → Authorized domains`,
+  "auth/operation-not-allowed": "ยังไม่ได้เปิดการล็อกอินด้วย Google เปิดได้ที่ Firebase console → Authentication → Sign-in method → Google",
+  "auth/popup-blocked": "เบราว์เซอร์บล็อกหน้าต่างป๊อปอัป อนุญาตป๊อปอัปสำหรับเว็บนี้แล้วกดเข้าสู่ระบบอีกครั้ง",
+  "auth/popup-closed-by-user": "ปิดหน้าต่างล็อกอินก่อนเสร็จ กดเข้าสู่ระบบอีกครั้งเพื่อลองใหม่",
+};
+const authErrorText = (e) => AUTH_ERROR_TEXT[e.code] ?? `เข้าสู่ระบบไม่สำเร็จ (${e.code ?? e.message})`;
+
+/**
+ * แท็บสด: ตรวจการล็อกอินก่อน แล้วค่อยแสดง Dashboard
+ * ยังไม่ล็อกอิน = ไม่ mount LiveDashboard จึงไม่มีการเริ่ม onSnapshot หรืออ่าน Firestore เลย
+ */
+export default function LiveTab() {
+  const [user, setUser] = useState(undefined); // undefined = กำลังตรวจ, null = ยังไม่ล็อกอิน
+  const [busy, setBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => onAuthStateChanged(auth, setUser), []); // คืนค่า unsubscribe ให้ cleanup
+
+  async function signIn() {
+    setBusy(true);
+    setAuthError("");
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (e) {
+      if (e.code !== "auth/cancelled-popup-request") setAuthError(authErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (user === undefined) {
+    return <p className="py-16 text-center text-stone-500">กำลังตรวจสอบการเข้าสู่ระบบ…</p>;
+  }
+
+  if (!user) {
+    return (
+      <div className="mx-auto mt-6 max-w-md rounded-xl bg-white p-8 text-center ring-1 ring-stone-200">
+        <h1 className="text-2xl font-bold" style={{ color: BRAND }}>ยอดขายสด</h1>
+        <p className="mt-2 text-stone-500">เข้าสู่ระบบเพื่อดูยอดขายแบบ real-time และบันทึกยอดขาย</p>
+        <button
+          onClick={signIn}
+          disabled={busy}
+          className="mt-6 inline-flex items-center gap-3 rounded-lg bg-white px-5 py-2.5 font-medium text-stone-800 ring-1 ring-stone-300 hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
+        >
+          <GoogleIcon />
+          {busy ? "กำลังเปิดหน้าต่างล็อกอิน…" : "เข้าสู่ระบบด้วย Google"}
+        </button>
+        {authError && (
+          <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-left text-sm text-red-800">❌ {authError}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <UserChip user={user} onSignOut={() => signOut(auth)} />
+      </div>
+      <LiveDashboard user={user} />
+    </div>
+  );
+}
+
+function UserChip({ user, onSignOut }) {
+  const name = user.displayName || user.email || "ผู้ใช้";
+  return (
+    <div className="flex items-center gap-3 rounded-full bg-white py-1 pl-1 pr-2 ring-1 ring-stone-200">
+      {user.photoURL ? (
+        <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />
+      ) : (
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-mint-700 text-sm font-semibold text-white">
+          {name[0].toUpperCase()}
+        </span>
+      )}
+      <span className="max-w-[12rem] truncate text-sm font-medium">{name}</span>
+      <button onClick={onSignOut} className="rounded-full px-3 py-1 text-sm text-stone-600 hover:bg-mint-50">
+        ออกจากระบบ
+      </button>
+    </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+    </svg>
+  );
+}
+
 /** ช่วงวันที่ตามเวลาไทย รวมวันนี้ เช่น 7 วัน = วันนี้และ 6 วันก่อนหน้า */
 function rangeDates(days) {
   const end = todayBangkok();
   return { start: addDays(end, -(days - 1)), end };
 }
 
-export default function LiveTab() {
+function LiveDashboard({ user }) {
   const [rangeId, setRangeId] = useState("7d");
   const [branch, setBranch] = useState("");
   // ผลล่าสุดของ query พร้อม key ของช่วงวันที่ ถ้า key ไม่ตรงกับช่วงปัจจุบัน = ยังโหลดช่วงใหม่อยู่
@@ -268,7 +364,7 @@ export default function LiveTab() {
       </div>
 
       <aside className="lg:sticky lg:top-28">
-        <SaleForm products={products} productsError={productsError} />
+        <SaleForm products={products} productsError={productsError} uid={user.uid} />
       </aside>
     </div>
   );

@@ -7,7 +7,6 @@ import { BRANCHES, MAX_QTY, PAYMENTS, buildSale, validateSaleForm } from "./sale
 import { fmtBaht } from "../lib/metrics.js";
 import { BRAND } from "../Overview.jsx";
 
-const UID = "anonymous"; // Lab 3.3 จะเปลี่ยนเป็น uid ของผู้ใช้ที่ล็อกอิน
 const EMPTY = { branch: "", product_id: "", qty: "1", payment_method: PAYMENTS[0], customer_id: "" };
 
 const inputClass = (bad) =>
@@ -23,8 +22,11 @@ function Field({ label, error, children }) {
   );
 }
 
-/** products = [{ product_id, product_name, price, ... }] โหลดจาก Firestore ครั้งเดียวใน LiveTab */
-export default function SaleForm({ products, productsError }) {
+/**
+ * products = [{ product_id, product_name, price, ... }] โหลดจาก Firestore ครั้งเดียวใน LiveTab
+ * uid = ผู้ใช้ที่ล็อกอิน (บันทึกเป็น created_by)
+ */
+export default function SaleForm({ products, productsError, uid }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -39,7 +41,7 @@ export default function SaleForm({ products, productsError }) {
   // ยอดรวมก่อนบันทึก: ใช้ buildSale ตัวเดียวกับตอนบันทึกจริง แสดงเมื่อเมนูและจำนวนถูกต้องแล้ว
   const product = products?.find((p) => p.product_id === form.product_id);
   const check = products ? validateSaleForm(form, products) : {};
-  const preview = product && !check.qty ? buildSale(form, product, { uid: UID }).data : null;
+  const preview = product && !check.qty ? buildSale(form, product, { uid }).data : null;
 
   async function submit(e) {
     e.preventDefault();
@@ -48,7 +50,7 @@ export default function SaleForm({ products, productsError }) {
     setMessage(null);
     if (Object.keys(found).length) return;
 
-    const { id, data } = buildSale(form, product, { uid: UID });
+    const { id, data } = buildSale(form, product, { uid });
     setSaving(true);
     try {
       await setDoc(doc(db, "sales", id), { ...data, created_at: serverTimestamp() });

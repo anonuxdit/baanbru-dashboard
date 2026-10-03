@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// Lab 3.3 · Security Rules ของบ้านบรู
+// หลักการ: ปิดทุกอย่างไว้ก่อน แล้วเปิดเฉพาะที่หน้าเว็บต้องใช้จริง
+// - การนำเข้าข้อมูล (npm run seed) ใช้ service account ผ่าน Admin SDK ซึ่งข้าม rules ทั้งหมด จึงไม่ได้รับผลกระทบ
+// - ตรวจผลได้ที่แท็บ "ทดสอบ Rules" ทุกข้อควรได้ ✅ ถูกบล็อก และฟอร์มบันทึกยอดขายต้องยังใช้งานได้
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- ฟังก์ชันช่วย ----------
+
+    // ล็อกอินแล้ว (มี request.auth) ไม่ว่าจะเป็นบัญชี Google ใดก็ตาม
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // 5 สาขามาตรฐาน ต้องตรงกับ BRANCHES ใน src/lab3/saleModel.js
+    function validBranch(b) {
+      return b in ['สยาม', 'สีลม', 'อารีย์', 'บางนา', 'มหาวิทยาลัย'];
+    }
+
+    // 5 วิธีชำระเงิน ต้องตรงกับ PAYMENTS ใน src/lab3/saleModel.js
+    function validPayment(p) {
+      return p in ['QR พร้อมเพย์', 'บัตรเครดิต', 'เงินสด', 'LINE MAN', 'Grab'];
+    }
+
+    // ฟิลด์ทั้งหมดที่ buildSale() สร้าง บวก created_at ที่ SaleForm เติมตอนบันทึก
+    function saleFields() {
+      return ['order_id', 'datetime', 'date', 'hour', 'branch', 'product_id', 'qty', 'unit_price',
+              'revenue', 'customer_id', 'payment_method', 'channel', 'source', 'created_by', 'created_at'];
+    }
+
+    // ตรวจเอกสารยอดขายใหม่ทีละเงื่อนไข (d = ข้อมูลที่กำลังจะเขียน)
+    function validNewSale(d) {
+      // ฟิลด์ครบทุกตัว (hasAll) และไม่มีฟิลด์เกินมา เช่น แอบเพิ่ม discount (hasOnly)
+      return d.keys().hasAll(saleFields()) && d.keys().hasOnly(saleFields())
+
+        // มาจากฟอร์มเว็บเท่านั้น ข้อมูลที่นำเข้า (source = "import") เขียนได้เฉพาะ Admin SDK
+        && d.source == 'web'
+
+        // ผู้บันทึกต้องเป็นคนที่ล็อกอินอยู่จริง ปลอมเป็น uid ของคนอื่นไม่ได้
+        && d.created_by == request.auth.uid
+
+        // เวลาบันทึกต้องเป็นเวลาของเซิร์ฟเวอร์ (serverTimestamp()) ใส่เวลาจากเครื่องตัวเองไม่ได้
+        && d.created_at == request.time
+
+        // สาขาต้องเป็น 1 ใน 5 สาขา และวิธีชำระเงินต้องเป็น 1 ใน 5 แบบ
+        && validBranch(d.branch)
+        && validPayment(d.payment_method)
+
+        // ช่องทางมีได้ 2 แบบตามที่ buildSale() คำนวณจากวิธีชำระเงิน
+        && d.channel in ['หน้าร้าน', 'เดลิเวอรี']
+
+        // จำนวนต้องเป็นจำนวนเต็ม (int) 1–20 กันจำนวนติดลบ ทศนิยม หรือจำนวนมากผิดปกติ
+        && d.qty is int && d.qty >= 1 && d.qty <= 20
+
+        // ชั่วโมงต้องเป็นจำนวนเต็ม 0–23
+        && d.hour is int && d.hour >= 0 && d.hour <= 23
+
+        // รหัสเมนูต้องเป็นข้อความ และราคาต่อชิ้นต้องเท่ากับราคาจริงใน products/{product_id}
+        // get() อ่านเมนูจากฐานข้อมูล ถ้าไม่มีเมนูนี้อยู่จริง get() จะล้มและการเขียนถูกปฏิเสธ
+        && d.product_id is string
+        && d.unit_price == get(/databases/$(database)/documents/products/$(d.product_id)).data.price
+
+        // ยอดรวมต้องเท่ากับ จำนวน × ราคา พอดี แก้ยอดให้สูงหรือต่ำกว่าจริงไม่ได้
+        && d.revenue == d.qty * d.unit_price
+
+        // วันที่ต้องเป็นรูปแบบ YYYY-MM-DD และ datetime ต้องเป็น YYYY-MM-DDTHH:MM:SS+07:00 (เวลาไทย)
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.datetime is string && d.datetime.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+]07:00$')
+
+        // date และ hour ต้องตรงกับส่วนวันที่และชั่วโมงใน datetime (กันข้อมูลขัดกันเอง)
+        && d.datetime.split('T')[0] == d.date
+        && int(d.datetime.split('T')[1].split(':')[0]) == d.hour
+
+        // รหัสสมาชิกไม่บังคับ: เป็น null (ลูกค้าทั่วไป) หรือ C ตามด้วยตัวเลข 5 หลัก (buildSale แปลงเป็นตัวพิมพ์ใหญ่แล้ว)
+        && (d.customer_id == null || (d.customer_id is string && d.customer_id.matches('^C[0-9]{5}$')))
+
+        // เลขบิลต้องเป็นข้อความ
+        && d.order_id is string;
+    }
+
+    // ---------- เมนูและสาขา ----------
+    // อ่านได้เมื่อล็อกอิน (ฟอร์มใช้แสดงเมนูและราคา) แต่เขียนจากหน้าเว็บไม่ได้เลย
+    // แก้ราคาหรือเพิ่มเมนูทำผ่าน Admin SDK (npm run seed) เท่านั้น
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /branches/{branchId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---------- ยอดขาย ----------
+    match /sales/{saleId} {
+      // อ่านได้เมื่อล็อกอิน (Dashboard ใช้ onSnapshot)
+      allow read: if signedIn();
+
+      // สร้างได้เมื่อล็อกอิน และข้อมูลต้องผ่านทุกเงื่อนไขใน validNewSale()
+      allow create: if signedIn() && validNewSale(request.resource.data);
+
+      // ยอดขายที่บันทึกแล้วเป็นหลักฐานทางบัญชี ห้ามแก้ไขและห้ามลบจากหน้าเว็บ
+      allow update, delete: if false;
+    }
+
+    // collection อื่นที่ไม่ได้ระบุไว้ข้างบน: rules ของ Firestore ปฏิเสธโดยอัตโนมัติ
+  }
+}
