@@ -70,7 +70,7 @@ export default function Overview({ rows }) {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-3xl font-bold" style={{ color: BRAND }}>บ้านบรู · ภาพรวมยอดขาย</h1>
+        <h1 className="text-3xl font-bold" style={{ color: BRAND }}>ภาพรวมยอดขาย</h1>
         <p className="text-stone-500">
           {branch || "ทุกสาขา"} · {thaiDate(start)} – {thaiDate(end)} · {fmtNum(data.count)} รายการ
         </p>

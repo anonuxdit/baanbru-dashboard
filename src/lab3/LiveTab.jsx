@@ -128,7 +128,7 @@ export default function LiveTab() {
       <div className="min-w-0 space-y-6">
         <header className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: BRAND }}>บ้านบรู · ยอดขายสด</h1>
+            <h1 className="text-3xl font-bold" style={{ color: BRAND }}>ยอดขายสด</h1>
             <p className="text-stone-500">
               {branch || "ทุกสาขา"} · {start === end ? thaiDate(end) : `${thaiDate(start)} – ${thaiDate(end)}`}
             </p>
@@ -267,7 +267,7 @@ export default function LiveTab() {
         )}
       </div>
 
-      <aside className="lg:sticky lg:top-16">
+      <aside className="lg:sticky lg:top-28">
         <SaleForm products={products} productsError={productsError} />
       </aside>
     </div>
